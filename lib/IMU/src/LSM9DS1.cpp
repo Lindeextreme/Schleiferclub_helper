@@ -1,10 +1,10 @@
 #include "LSM9DS1.h"
-static const uint8_t LSM9DS1XG_ADDRESS          = 0x6B;  //  Address of accelerometer and gyroscope
+static const uint8_t LSM9DS1XG_ADDRESS          = 0x6B;  //  Address of accelerometer and gyrscope
 static const uint8_t LSM9DS1M_ADDRESS           = 0x1E;  //  Address of magnetometer
 
 // See also LSM9DS1 Register Map and Descriptions, http://www.st.com/st-web-ui/static/active/en/resource/technical/document/datasheet/DM00103319.pdf 
 //
-// Accelerometer and Gyroscope registers
+// Accelerometer and Gyrscope registers
 static const uint8_t LSM9DS1XG_ACT_THS          = 0x04;
 static const uint8_t LSM9DS1XG_ACT_DUR          = 0x05;
 static const uint8_t LSM9DS1XG_INT_GEN_CFG_XL   = 0x06;
@@ -100,16 +100,16 @@ LSM9DS1Class::LSM9DS1Class(TwoWire& wire) :
       break;
   }
 
-  switch(_gyro_scale)
+  switch(_gyr_scale)
   {
-    case Gyro_scale_settings::GFS_245DPS:
-      _gyro_resolution = 245.0/32768.0;
+    case Gyr_scale_settings::GFS_245DPS:
+      _gyr_resolution = 245.0/32768.0;
       break;
-    case Gyro_scale_settings::GFS_500DPS:
-      _gyro_resolution = 500.0/32768.0;
+    case Gyr_scale_settings::GFS_500DPS:
+      _gyr_resolution = 500.0/32768.0;
       break;
-    case Gyro_scale_settings::GFS_2000DPS:
-      _gyro_resolution = 2000.0/32768.0;
+    case Gyr_scale_settings::GFS_2000DPS:
+      _gyr_resolution = 2000.0/32768.0;
       break;
   }
 
@@ -144,12 +144,12 @@ int LSM9DS1Class::begin()
   return 1;
 }
 
-int LSM9DS1Class::statusAccGyro()
+int LSM9DS1Class::statusAccGyr()
 {
   byte tmp;
   int ret_val;
 
-  // Read WHO_AM_I register of LSM9DS1 accel/gyro
+  // Read WHO_AM_I register of LSM9DS1 accel/gyr
   tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_WHO_AM_I);  
 
   tmp == 0x68 ? ret_val = 1 : ret_val = 0;
@@ -175,136 +175,315 @@ void LSM9DS1Class::selfTestAcc()
   float acc_self_test_enabled[3] = {0., 0., 0.};
 
   writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x00); // disable self test
-  calibrateAcc(acc_self_test_disabled);
+  getAccBias(acc_self_test_disabled);
 
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x05); // enable gyro/accel self test
-  calibrateAcc(acc_self_test_enabled);
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x01); // enable accel self test
+  getAccBias(acc_self_test_enabled);
+
+  float accdx = 1000.*((acc_self_test_enabled[0] - acc_self_test_disabled[0]));
+  float accdy = 1000.*((acc_self_test_enabled[1] - acc_self_test_disabled[1]));
+  float accdz = 1000.*((acc_self_test_enabled[2] - acc_self_test_disabled[2]));
+
+  Serial.println("Accelerometer self-test results: ");
+  Serial.print("x-axis = "); Serial.print(accdx); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+  Serial.print("y-axis = "); Serial.print(accdy); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+  Serial.print("z-axis = "); Serial.print(accdz); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+
 }
 
-void LSM9DS1Class::selfTestGyro()
+void LSM9DS1Class::selfTestGyr()
 {
-  float gyro_self_test_disabled[3] = {0., 0., 0.}; 
-  float gyro_self_test_enabled[3] = {0., 0., 0.};
+  float gyr_self_test_disabled[3] = {0., 0., 0.}; 
+  float gyr_self_test_enabled[3] = {0., 0., 0.};
 
   writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x00); // disable self test
-  calibrateGyro(gyro_self_test_disabled);
+  getGyrBias(gyr_self_test_disabled);
 
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x05); // enable gyro/accel self test
-  calibrateGyro(gyro_self_test_enabled);
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG10, 0x04); // enable gyr self test
+  getGyrBias(gyr_self_test_enabled);
+
+  float gyrdx = (gyr_self_test_enabled[0] - gyr_self_test_disabled[0]);
+  float gyrdy = (gyr_self_test_enabled[1] - gyr_self_test_disabled[1]);
+  float gyrdz = (gyr_self_test_enabled[2] - gyr_self_test_disabled[2]);
+
+  Serial.println("Gyro self-test results: ");
+  Serial.print("x-axis = "); Serial.print(gyrdx); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+  Serial.print("y-axis = "); Serial.print(gyrdy); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
+  Serial.print("z-axis = "); Serial.print(gyrdz); Serial.print(" dps"); Serial.println(" should be between 20 and 250 dps");
 }
 // Function which accumulates accelerometer data after device initialization. It calculates the average
 // of the at-rest readings and then loads the resulting offsets into accelerometer bias registers.
-void LSM9DS1Class::calibrateAcc(float * ret_val)
+void LSM9DS1Class::getAccBias(float * ret_val)
 {
-  uint8_t data[6] = {0, 0, 0, 0, 0, 0};
-  int32_t accel_bias[3] = {0, 0, 0};
-  uint16_t samples, ii;
-  
-  // enable the three axes of the accelerometer 
+  int32_t acc_bias[3] = {0, 0, 0};
+  uint8_t cnt;
+
+  enableAccSensor();
+  enableFifoMode();
+
+  getGyrFifoMeanValue(&acc_bias[0]);  
+
+  /* Remove gravity from the z-axis accelerometer bias calculation */
+  if(acc_bias[2] > 0L) 
+  {
+    acc_bias[2] -= (int32_t) (1.0/_acc_resolution);
+  }  
+  else 
+  {
+    acc_bias[2] += (int32_t) (1.0/_acc_resolution);
+  }
+
+  /* Properly scale the data to get g */
+  for (cnt = 0; cnt < 3; cnt++){
+    ret_val[cnt] = (float)acc_bias[cnt]*_acc_resolution;
+  }
+
+  disableFifoMode();
+  disableAccSensor();
+}
+
+// Function which accumulates gyr data after device initialization. It calculates the average
+// of the at-rest readings and then loads the resulting offsets into gyr bias registers.
+void LSM9DS1Class::getGyrBias(float *ret_val)
+{
+  int32_t gyr_bias[3] = {0, 0, 0};
+  uint8_t cnt;
+
+  enableGyrSensor();
+  enableFifoMode();
+
+  getGyrFifoMeanValue(&gyr_bias[0]);
+
+  /* Properly scale the data to get g */
+  for (cnt = 0; cnt < 3; cnt++){
+    ret_val[cnt] = (float)gyr_bias[cnt]*_gyr_resolution;
+  }
+
+  disableFifoMode();
+  disableGyrSensor();
+}
+
+
+void LSM9DS1Class::enableAccSensor(void)
+{
+  /* 
+   * Enable Xen_G -> Gyroscope’s pitch axis (X) output enable
+   * Enable Yen_G -> Gyroscope’s pitch axis (>) output enable
+   * Enable Zen_G -> Gyroscope’s pitch axis (Z) output enable
+   */
   writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG5_XL, 0x38);
   // configure the accelerometer-specify bandwidth selection with Abw
   writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG6_XL, static_cast<uint8_t>(_acc_sample_rate) << 5 | static_cast<uint8_t>(_acc_scale) << 3 | 0x04 | static_cast<uint8_t>(_acc_data_bandwith));
   delay(200);
-  // enable block data update, allow auto-increment during multiple byte read
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, 0x44);
-
-  // now get the accelerometer bias
-  byte c = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, c | 0x02);     // Enable accel FIFO  
-  delay(50);                                                       // Wait for change to take effect
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x20 | 0x1F);  // Enable accel FIFO stream mode and set watermark at 32 samples
-  delay(1000);  // delay 1000 milliseconds to collect FIFO samples
-
-  samples = (readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_SRC) & 0x2F); // Read number of stored samples
-
-  for(ii = 0; ii < samples ; ii++) {            // Read the accel data stored in the FIFO
-    int16_t accel_temp[3] = {0, 0, 0};
-    readBytes(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_XL, 6, &data[0]);
-    accel_temp[0] = (int16_t) (((int16_t)data[1] << 8) | data[0]); // Form signed 16-bit integer for each sample in FIFO
-    accel_temp[1] = (int16_t) (((int16_t)data[3] << 8) | data[2]);
-    accel_temp[2] = (int16_t) (((int16_t)data[5] << 8) | data[4]);
-
-    accel_bias[0] += (int32_t) accel_temp[0]; // Sum individual signed 16-bit biases to get accumulated signed 32-bit biases
-    accel_bias[1] += (int32_t) accel_temp[1]; 
-    accel_bias[2] += (int32_t) accel_temp[2]; 
-  }  
-
-  accel_bias[0] /= samples; // average the data
-  accel_bias[1] /= samples; 
-  accel_bias[2] /= samples; 
-
-  // Remove gravity from the z-axis accelerometer bias calculation
-  if(accel_bias[2] > 0L) 
-  {
-    accel_bias[2] -= (int32_t) (1.0/_acc_resolution);
-  }  
-  else {accel_bias[2] += (int32_t) (1.0/_acc_resolution);}
-
-  ret_val[0] = (float)accel_bias[0]*_acc_resolution;  // Properly scale the data to get g
-  ret_val[1] = (float)accel_bias[1]*_acc_resolution;
-  ret_val[2] = (float)accel_bias[2]*_acc_resolution;
-
-  c = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, c & ~0x02);   //Disable accel FIFO  
-  delay(50);
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x00);  // Enable accel bypass mode  
+  /*
+   * Enable BDU -> Block data update -> output registers not updated until MSB and LSB read
+   * Enable IF_ADD_INC -> Register address automatically incremented during a multiple byte access with a serial interface
+   */ 
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, 0x44);  
 }
 
-// Function which accumulates gyro data after device initialization. It calculates the average
-// of the at-rest readings and then loads the resulting offsets into gyro bias registers.
-void LSM9DS1Class::calibrateGyro(float *ret_val)
+void LSM9DS1Class::disableAccSensor(void)
 {
-  uint8_t data[6] = {0, 0, 0, 0, 0, 0};
-  int32_t gyro_bias[3] = {0, 0, 0};
-  uint16_t samples, ii;
+  uint8_t tmp;
 
-  // enable the 3-axes of the gyroscope
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG4, 0x38);
-  // configure the gyroscope
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG1_G, static_cast<uint8_t>(_gyro_sample_rate) << 5 | static_cast<uint8_t>(_gyro_scale) << 3 | static_cast<uint8_t>(_gyro_data_bandwith));
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG5_XL);
+  /* 
+   * Disable Xen_G -> Gyroscope’s pitch axis (X) output enable
+   * Disable Yen_G -> Gyroscope’s pitch axis (>) output enable
+   * Disable Zen_G -> Gyroscope’s pitch axis (Z) output enable
+   */
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG5_XL, tmp & ~0x38);
+  // configure the accelerometer-specify bandwidth selection with Abw
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG6_XL, 0x0);
   delay(200);
-  // enable block data update, allow auto-increment during multiple byte read
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, 0x44);
+  /*
+   * Disable BDU -> Block data update -> output registers not updated until MSB and LSB read
+   * Disable IF_ADD_INC -> Register address automatically incremented during a multiple byte access with a serial interface
+   */ 
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8);
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, tmp & ~0x44);  
+}
 
-  // now get gyro bias
-  byte c = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, c | 0x02);     // Enable gyro FIFO  
-  delay(50);                                                       // Wait for change to take effect
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x20 | 0x1F);  // Enable gyro FIFO stream mode and set watermark at 32 samples
-  delay(1000);  // delay 1000 milliseconds to collect FIFO samples
+void LSM9DS1Class::enableGyrSensor(void)
+{
+  // enable the 3-axes of the gyrscope
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG4, 0x38);
+  // configure the gyrscope
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG1_G, static_cast<uint8_t>(_gyr_sample_rate) << 5 | static_cast<uint8_t>(_gyr_scale) << 3 | static_cast<uint8_t>(_gyr_data_bandwith));
+  delay(200);
+  /*
+   * Enable BDU -> Block data update -> output registers not updated until MSB and LSB read
+   * Enable IF_ADD_INC -> Register address automatically incremented during a multiple byte access with a serial interface
+   */ 
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, 0x44);
+}
+
+void LSM9DS1Class::disableGyrSensor(void)
+{
+  uint8_t tmp;
+
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG4);
+  // enable the 3-axes of the gyrscope
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG4, tmp & ~0x38);
+  // configure the gyrscope
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG1_G, 0x0);
+  delay(200);
+  /*
+   * Enable BDU -> Block data update -> output registers not updated until MSB and LSB read
+   * Enable IF_ADD_INC -> Register address automatically incremented during a multiple byte access with a serial interface
+   */ 
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8);
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG8, tmp & ~0x44);
+}
+
+void LSM9DS1Class::enableFifoMode(void)
+{
+  uint8_t tmp;
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
+  /* Enable FIFO_EN -> FIFO memory enable */
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, tmp | 0x02);      
+  /* Wait for change to take effect */
+  delay(50);                                               
+  /* 
+   * Enable FMODE0 -> FIFO mode. Stops collecting data when FIFO is full.
+   * Enable FTH0-FTH4 -> FIFO threshold level setting -> maximum
+   */
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x20 | 0x1F);
+  /* Time to collect FIFO samples */
+  delay(1000);
+}
+
+void LSM9DS1Class::getAccFifoMeanValue(int32_t * data)
+{
+  uint16_t samples;
+  uint8_t cnt;
 
   samples = (readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_SRC) & 0x2F); // Read number of stored samples
 
-  for(ii = 0; ii < samples ; ii++) {            // Read the gyro data stored in the FIFO
-    int16_t gyro_temp[3] = {0, 0, 0};
-    readBytes(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_G, 6, &data[0]);
-    gyro_temp[0] = (int16_t) (((int16_t)data[1] << 8) | data[0]); // Form signed 16-bit integer for each sample in FIFO
-    gyro_temp[1] = (int16_t) (((int16_t)data[3] << 8) | data[2]);
-    gyro_temp[2] = (int16_t) (((int16_t)data[5] << 8) | data[4]);
+  /* Read the accel data stored in the FIFO */
+  for(cnt = 0; cnt < samples ; cnt++) {
+    SensorData tmp;
+    getAccData(&tmp);
 
-    gyro_bias[0] += (int32_t) gyro_temp[0]; // Sum individual signed 16-bit biases to get accumulated signed 32-bit biases
-    gyro_bias[1] += (int32_t) gyro_temp[1]; 
-    gyro_bias[2] += (int32_t) gyro_temp[2]; 
-  }  
+    /* Sum individual signed 16-bit biases to get accumulated signed 32-bit biases */
+    data[0] += (int32_t) tmp.x;
+    data[1] += (int32_t) tmp.y; 
+    data[2] += (int32_t) tmp.z; 
+  } 
+  
+  /* Calculate the average values */
+  for (cnt = 0; cnt < 3; cnt++){
+    data[cnt] /= samples;
+  }
+}
 
-  gyro_bias[0] /= samples; // average the data
-  gyro_bias[1] /= samples; 
-  gyro_bias[2] /= samples; 
+void LSM9DS1Class::getGyrFifoMeanValue(int32_t * data)
+{
+  uint16_t samples;
+  uint8_t cnt;
 
-  ret_val[0] = (float)gyro_bias[0]*_gyro_resolution;  // Properly scale the data to get deg/s
-  ret_val[1] = (float)gyro_bias[1]*_gyro_resolution;
-  ret_val[2] = (float)gyro_bias[2]*_gyro_resolution;
+  samples = (readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_SRC) & 0x2F); // Read number of stored samples
 
-  c = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
-  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, c & ~0x02);   //Disable gyro FIFO  
+  /* Read the accel data stored in the FIFO */
+  for(cnt = 0; cnt < samples ; cnt++) {
+    SensorData tmp;
+    getAccData(&tmp);
+
+    /* Sum individual signed 16-bit biases to get accumulated signed 32-bit biases */
+    data[0] += (int32_t) tmp.x;
+    data[1] += (int32_t) tmp.y; 
+    data[2] += (int32_t) tmp.z; 
+  } 
+  
+  /* Calculate the average values */
+  for (cnt = 0; cnt < 3; cnt++){
+    data[cnt] /= samples;
+  }
+}
+
+void LSM9DS1Class::disableFifoMode(void)
+{
+  uint8_t tmp;
+  tmp = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9);
+  /* Disable FIFO_EN -> FIFO memory enable */
+  writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG9, tmp & ~0x02);
+  /* Wait for change to take effect */ 
   delay(50);
+  /*
+   * Disable FMODE0-3 -> Bypass mode. FIFO turned off
+   * Disable FTH0-FTH4
+   */
   writeRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x00);  // Enable gyro bypass mode
 }
 
-int LSM9DS1Class::readRegister(uint8_t slaveAddress, uint8_t address)
+void LSM9DS1Class::getAccData(SensorData * data)
+{
+  uint8_t tmp_low;
+  uint8_t tmp_high;
+  
+  /* Get x-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_XL);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_H_XL);
+  data->x = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get y-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Y_L_XL);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Y_H_XL);
+  data->y = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get z-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Z_L_XL);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Z_H_XL);
+  data->z = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+}
+
+void LSM9DS1Class::getGyrData(SensorData * data)
+{
+  uint8_t tmp_low;
+  uint8_t tmp_high;
+  
+  /* Get x-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_G);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_H_G);
+  data->x = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get y-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Y_L_G);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Y_H_G);
+  data->y = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get z-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Z_L_G);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_Z_H_G);
+  data->z = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+}
+
+void LSM9DS1Class::getMagData(SensorData * data)
+{
+  uint8_t tmp_low;
+  uint8_t tmp_high;
+  
+  /* Get x-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_X_L_M);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_X_H_M);
+  data->x = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get y-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_Y_L_M);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_Y_H_M);
+  data->y = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+
+  /* Get z-axis */
+  tmp_low = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_Z_L_M);
+  tmp_high = readRegister(LSM9DS1XG_ADDRESS, LSM9DS1M_OUT_Z_H_M);
+  data->z = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
+}
+
+int8_t LSM9DS1Class::readRegister(uint8_t slaveAddress, uint8_t address)
 {
   _wire->beginTransmission(slaveAddress);
   _wire->write(address);
+
   if (_wire->endTransmission() != 0) {
     return -1;
   }
@@ -313,29 +492,17 @@ int LSM9DS1Class::readRegister(uint8_t slaveAddress, uint8_t address)
     return -1;
   }
 
-  return _wire->read();
+  return static_cast<uint8_t>(_wire->read());
 }
 
-void LSM9DS1Class::readBytes(uint8_t slaveAddress, uint8_t address, uint8_t count, uint8_t * dest)
-{
-  uint8_t i = 0;
-  _wire->beginTransmission(slaveAddress);
-  _wire->write(address);
-  _wire->endTransmission(false);            // Send the Tx buffer, but send a restart to keep connection alive
-  _wire->requestFrom(slaveAddress, count);  // Read bytes from slave register address 
-  
-  while (_wire->available()) {
-    dest[i++] = _wire->read(); }         // Put read results in the Rx buffer
-}
-
-int LSM9DS1Class::writeRegister(uint8_t slaveAddress, uint8_t address, uint8_t value)
+boolean LSM9DS1Class::writeRegister(uint8_t slaveAddress, uint8_t address, uint8_t value)
 {
   _wire->beginTransmission(slaveAddress);
   _wire->write(address);
   _wire->write(value);
   if (_wire->endTransmission() != 0) {
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }
