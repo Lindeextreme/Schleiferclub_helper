@@ -1,17 +1,17 @@
-#include <Arduino.h>
-
-#include "LSM9DS1.h"
+#include <Sensor.h>
+#include <Wire.h>
 
 int serial_instruction = 0; // for incoming serial data
-LSM9DS1Class IMU(Wire1);
 
 void setup()
 {
-  Serial.begin(115200);
-  if (!IMU.begin()) {
-    Serial.println("Failed to initialize IMU!");
-    while (1);
-  }
+  Serial.begin(115200);  
+
+  // Activate i2c
+  Wire1.begin();
+  
+  // Initialize devices
+  Sensor::initialize();
 }
 
 void loop()
@@ -36,25 +36,31 @@ void loop()
       break;
       case 115: /* -s, -- device status */
         Serial.println("Device status:");
-          if (!IMU.statusAccGyro()) {
-            Serial.println("Accelerometer and gyroscope access failed!");
-          }
-          else
-          {
-            Serial.println("LSM9DS1: accelerometer and gyroscope are online");
-          }
+        Accelerometer *accelerometer = Sensor::getAccelerometer();
 
-          if (!IMU.statusMag()) {
-            Serial.println("Magnetometer access failed!");
-          }
-          else
-          {
-            Serial.println("LSM9DS1: magnetometer is online");
-          }          
-      break;
-      default:
-        Serial.println("Please type ? for more details");
-        Serial.println();
+        if (accelerometer->initialize()) {
+          Serial.println("LSM9DS1: accelerometer and gyroscope are online");
+          SensorData a = accelerometer->getAcceleration();
+          
+          Serial.print(a.x);
+          Serial.print(", ");
+          Serial.print(a.y);
+          Serial.print(", ");
+          Serial.println(a.z);
+        }
+        else
+        {
+          Serial.println("Accelerometer and gyroscope access failed!");
+        }
+        /*
+        if (!IMU.statusMag()) {
+          Serial.println("Magnetometer access failed!");
+        }
+        else
+        {
+          Serial.println("LSM9DS1: magnetometer is online");
+        }
+        */       
       break;
     }
   }

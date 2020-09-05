@@ -479,30 +479,4 @@ void LSM9DS1Class::getMagData(SensorData * data)
   data->z = (int16_t) (((int16_t)tmp_high << 8) | tmp_low);
 }
 
-int8_t LSM9DS1Class::readRegister(uint8_t slaveAddress, uint8_t address)
-{
-  _wire->beginTransmission(slaveAddress);
-  _wire->write(address);
 
-  if (_wire->endTransmission() != 0) {
-    return -1;
-  }
-
-  if (_wire->requestFrom(slaveAddress, 1) != 1) {
-    return -1;
-  }
-
-  return static_cast<uint8_t>(_wire->read());
-}
-
-boolean LSM9DS1Class::writeRegister(uint8_t slaveAddress, uint8_t address, uint8_t value)
-{
-  _wire->beginTransmission(slaveAddress);
-  _wire->write(address);
-  _wire->write(value);
-  if (_wire->endTransmission() != 0) {
-    return false;
-  }
-
-  return true;
-}
