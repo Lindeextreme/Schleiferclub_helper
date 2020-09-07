@@ -40,13 +40,13 @@ void loop()
 
         if (accelerometer->initialize()) {
           Serial.println("LSM9DS1: accelerometer and gyroscope are online");
-          SensorData a = accelerometer->getAcceleration();
+          SensorData a = accelerometer->selfTest();
           
-          Serial.print(a.x);
-          Serial.print(", ");
-          Serial.print(a.y);
-          Serial.print(", ");
-          Serial.println(a.z);
+          Serial.println("Accelerometer self-test results: ");
+          Serial.print("x-axis = "); Serial.print(a.x); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+          Serial.print("y-axis = "); Serial.print(a.y); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+          Serial.print("z-axis = "); Serial.print(a.z); Serial.print(" mg"); Serial.println(" should be between 60 and 1700 mg");
+
         }
         else
         {
