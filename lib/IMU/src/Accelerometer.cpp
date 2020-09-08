@@ -1,7 +1,9 @@
 #include "Accelerometer.h"
+#include "Arduino.h"
 
 bool Accelerometer::initialize(void) 
 {
+    Serial.println("Enter: Accelerometer::initialize");
     uint8_t data;
     if(is_initialized == false)
     {
@@ -41,15 +43,18 @@ bool Accelerometer::initialize(void)
             writeByte(LSM9DS1XG_CTRL_REG8, 0x44);
 
             is_initialized = true;
+            Serial.println("Exit: Accelerometer::initialize");
             return 1;
         }
         else
         {
+            Serial.println("Exit: Accelerometer::initialize");
             return 0;
         }
     }
     else
     {
+        Serial.println("Exit: Accelerometer::initialize");
         return 1;
     }
     
@@ -57,6 +62,7 @@ bool Accelerometer::initialize(void)
 
 SensorData Accelerometer::getAcceleration(void)
 {
+    Serial.println("Enter: Accelerometer::getAcceleration");
     SensorData acc;
 
     if(is_initialized == true)
@@ -76,47 +82,53 @@ SensorData Accelerometer::getAcceleration(void)
         acc.y = 0;
         acc.z = 0;
     }
-
+    Serial.println("Exit: Accelerometer::getAcceleration");
     return acc;
 }
 
 void Accelerometer::getRawData(int16_t *data)
 {
+    Serial.println("Enter: Accelerometer::getRawData");
     uint8_t buffer[6];
 
     readBytes(LSM9DS1XG_OUT_X_L_XL, 7, &buffer[0]);
     data[0] = (((int16_t)buffer[1]) << 8) | buffer[0];
     data[1] = (((int16_t)buffer[3]) << 8) | buffer[2];
     data[2] = (((int16_t)buffer[5]) << 8) | buffer[4];
+    Serial.println("Exit: Accelerometer::getRawData");
 }
 
 SensorData Accelerometer::selfTest(void)
 {
+    Serial.println("Enter: Accelerometer::selfTest");
     SensorData acc;
     float st[3] = {0., 0., 0.}; 
     float no_st[3] = {0., 0., 0.};
 
     writeByte(LSM9DS1XG_CTRL_REG10, 0x00); // disable self test
-    getBias(&st[0]);
-
-    writeByte(LSM9DS1XG_CTRL_REG10, 0x01); // enable accel self test
     getBias(&no_st[0]);
-
+    
+    /*writeByte(LSM9DS1XG_CTRL_REG10, 0x01); // enable accel self test
+    
+    getBias(&st[0]);
+    
     acc.x = 1000.*((st[0] - no_st[0]));
     acc.y = 1000.*((st[1] - no_st[1]));
     acc.z = 1000.*((st[2] - no_st[2]));
-
+    */
+    Serial.println("Exit: Accelerometer::selfTest");
     return acc;
 }
 
 void Accelerometer::getBias(float * data)
 {
+  Serial.println("Enter: Accelerometer::getBias");
   int32_t bias[3] = {0, 0, 0};
   uint8_t cnt;
 
   enableFifoMode();
-
-  getFifoMeanValue(&bias[0]);  
+  
+  getFifoMeanValue(&bias[0]);
 
   /* Remove gravity from the z-axis accelerometer bias calculation */
   if(bias[2] > 0L) 
@@ -134,16 +146,18 @@ void Accelerometer::getBias(float * data)
   }
 
   disableFifoMode();
+  Serial.println("Exit: Accelerometer::getBias");
 }
 
 void Accelerometer::enableFifoMode(void)
 {
+  Serial.println("Enter: Accelerometer::enableFifoMode");
   uint8_t tmp;
   readByte(LSM9DS1XG_CTRL_REG9, &tmp);
   /* Enable FIFO_EN -> FIFO memory enable */
   writeByte(LSM9DS1XG_CTRL_REG9, tmp | 0x02);      
   /* Wait for change to take effect */
-  usleep(50);                                               
+  usleep(50);
   /* 
    * Enable FMODE0 -> FIFO mode. Stops collecting data when FIFO is full.
    * Enable FTH0-FTH4 -> FIFO threshold level setting -> maximum
@@ -151,10 +165,12 @@ void Accelerometer::enableFifoMode(void)
   writeByte(LSM9DS1XG_FIFO_CTRL, 0x20 | 0x1F);
   /* Time to collect FIFO samples */
   usleep(1000);
+  Serial.println("Exit: Accelerometer::enableFifoMode");
 }
 
 void Accelerometer::disableFifoMode(void)
 {
+  Serial.println("Enter: Accelerometer::disableFifoMode");
   uint8_t tmp;
   tmp = readByte(LSM9DS1XG_CTRL_REG9, &tmp);
   /* Disable FIFO_EN -> FIFO memory enable */
@@ -165,15 +181,19 @@ void Accelerometer::disableFifoMode(void)
    * Disable FMODE0-3 -> Bypass mode. FIFO turned off
    * Disable FTH0-FTH4
    */
-  writeByte(LSM9DS1XG_FIFO_CTRL, 0x00);  // Enable gyro bypass mode
+  writeByte(LSM9DS1XG_FIFO_CTRL, 0x00);
+  usleep(50);
+  Serial.println("Exit: Accelerometer::disableFifoMode");
 }
 
 void Accelerometer::getFifoMeanValue(int32_t * data)
 {
+  Serial.println("Enter: Accelerometer::getFifoMeanValue");
   uint8_t samples;
-  uint8_t cnt;
+  uint8_t cnt, cnt2;
 
   readByte(LSM9DS1XG_FIFO_SRC, &samples); // Read number of stored samples
+  //Serial.print("fifo samples raw:"); Serial.println(samples);
   /* FSS5 = 1 -> FIFO full -> 32 unread samples */
   if(samples & 0x20)
   {
@@ -183,20 +203,23 @@ void Accelerometer::getFifoMeanValue(int32_t * data)
   {
       samples = samples & 0x1F;
   }
-
+  //Serial.print("fifo samples converted:"); Serial.println(samples);
   /* Read the accel data stored in the FIFO */
   for(cnt = 0; cnt < samples ; cnt++) {
     int16_t rawData[3];
     getRawData(&rawData[0]);
 
     /* Sum individual signed 16-bit biases to get accumulated signed 32-bit biases */
-    for (cnt = 0; cnt < 3; cnt++){
+    for (cnt2 = 0; cnt2 < 3; cnt2++){
         data[cnt] += (int32_t) rawData[cnt];
     }
   } 
   
   /* Calculate the average values */
   for (cnt = 0; cnt < 3; cnt++){
+    //Serial.print("raw acc summ"); Serial.print(cnt); Serial.print(" :"); Serial.println(data[cnt]);
     data[cnt] /= samples;
+    //Serial.print("raw acc average value"); Serial.print(cnt); Serial.print(" :"); Serial.println(data[cnt]);
   }
+  Serial.println("Exit: Accelerometer::getFifoMeanValue");
 }

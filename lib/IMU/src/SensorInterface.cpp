@@ -44,5 +44,6 @@ bool SensorInterface::writeBytes(uint8_t regAddr, uint8_t length, uint8_t *data)
 }
 
 void SensorInterface::usleep(unsigned int us) {
-    delayMicroseconds(us);
+    //delayMicroseconds(us);
+    delay(us);
 }
