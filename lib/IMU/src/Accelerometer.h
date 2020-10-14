@@ -68,11 +68,11 @@ class Accelerometer : public SensorInterface {
         SensorData selfTest(void);
     
     private:
-        void getRawData(int16_t *data);
+        void getRawData(void);
 
         void getBias(float * data);
         void enableFifoMode(void);
-        void getFifoMeanValue(int32_t * data);
+        void getFifoMeanValue(void);
         void disableFifoMode(void);        
 
     private:
@@ -82,4 +82,11 @@ class Accelerometer : public SensorInterface {
         const Data_bandwiths data_bandwith = Data_bandwiths::ABW_50Hz;    
         
         float resolution;
+        uint8_t sensorReadBuffer[6];
+        int16_t accRawData[3];
+        int32_t accRawDataMeanVal[3];
+        float biasSelfTest[3]; 
+        float biasNoSelfTest[3];
+
+        SensorData acc;
 };
