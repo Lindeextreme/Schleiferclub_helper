@@ -2,10 +2,10 @@
 
 #include <stdint.h>
 
-class SensorInterface {
+class I2CWrapper {
     public:
         // Constructor
-        SensorInterface(uint8_t address);
+        I2CWrapper(uint8_t address);
 
     protected:
         bool readByte(uint8_t regAddr, uint8_t *data);
